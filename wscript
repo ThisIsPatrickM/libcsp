@@ -229,6 +229,11 @@ def build(ctx):
                     lib=ctx.env.LIBS,
                     use='csp')
 
+        ctx.program(source='examples/csp_responder.c',
+                    target='csp_responder',
+                    lib=ctx.env.LIBS,
+                    use='csp')
+
         ctx.program(source='examples/csp_arch.c',
                     target='csp_arch',
                     lib=ctx.env.LIBS,
