@@ -26,6 +26,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 #include <csp/csp.h>
 #include <csp/arch/csp_thread.h>
 #include <csp/drivers/can_socketcan.h>
+#include <csp/csp_crc32.h>
 
 /* Server port, the port the server listens on for incoming connections from the client. */
 #define MY_SERVER_PORT		10
@@ -37,9 +38,17 @@ static unsigned int server_received = 0;
 
 static enum Response { 
     REFLECT = 0,
-    TESTMESSAGE
+    TESTMESSAGE,
+    CRC32
 } state = REFLECT;
 
+void answer_with_crc32(csp_packet_t* packet){
+    const char msg[] = "This is my Reply with CRC32";
+    csp_packet_t * answer = csp_buffer_get(100);
+    memcpy(answer->data, &msg, sizeof(msg));
+    answer->length = sizeof(msg);
+    csp_sendto(CSP_PRIO_CRITICAL, packet->id.src, packet->id.sport, packet->id.dport, CSP_O_CRC32, answer, 1000);
+}
 
 void reflect_packet(csp_packet_t *packet){
     csp_sendto(CSP_PRIO_CRITICAL, packet->id.src, packet->id.sport, packet->id.dport, CSP_O_NONE, packet, 1000);
@@ -58,8 +67,13 @@ CSP_DEFINE_TASK(task_server) {
 	csp_log_info("Server task started");
 
 	/* Create socket with no specific socket options, e.g. accepts CRC32, HMAC, XTEA, etc. if enabled during compilation */
-	csp_socket_t *sock = csp_socket(CSP_SO_NONE);
-    
+	csp_socket_t *sock;
+    if (state == CRC32){
+        sock = csp_socket(CSP_SO_CRC32REQ);
+    } else {
+        sock = csp_socket(CSP_SO_NONE);
+    }
+     
 
 	/* Bind socket to all ports, e.g. all incoming connections will be handled here */
 	csp_bind(sock, CSP_ANY);
@@ -88,7 +102,9 @@ CSP_DEFINE_TASK(task_server) {
                     reflect_packet(packet);
                 } else if (state == TESTMESSAGE){
                     answer_with_testmessage(packet);
-                } else {
+                } else if (state == CRC32){
+                    answer_with_crc32(packet);
+                }else  {
                     csp_buffer_free(packet);
                 }
 				++server_received;
@@ -121,7 +137,7 @@ int main(int argc, char * argv[]) {
 #endif
     const char * rtable = NULL;
     int opt;
-    while ((opt = getopt(argc, argv, "a:d:r:c:tR:h:q:m")) != -1) {
+    while ((opt = getopt(argc, argv, "a:d:r:c:tR:h:q:m:3")) != -1) {
         switch (opt) {
             case 'a':
                 address = atoi(optarg);
@@ -146,6 +162,9 @@ int main(int argc, char * argv[]) {
             case 'm':
                 state = TESTMESSAGE;
                 break;
+            case '3':
+                state = CRC32;
+                break;
             default:
                 printf("Usage:\n"
                        " -a <address>     local CSP address\n"
@@ -154,6 +173,7 @@ int main(int argc, char * argv[]) {
                        " -c <can-device>  add CAN device\n"
                        " -q               return the same packet to the sender\n"
                        " -m               return a hardcoded testmessage to sender\n"
+                       " -3               reply with CRC32"
                        " -R <rtable>      set routing table\n");
                 exit(1);
                 break;
